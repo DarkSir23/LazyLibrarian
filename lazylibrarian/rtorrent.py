@@ -16,6 +16,7 @@ from time import sleep
 
 import lazylibrarian
 from lazylibrarian import logger
+from lazylibrarian formatter import makeUnicode
 # noinspection PyUnresolvedReferences
 from lib.six.moves import xmlrpc_client
 from base64 import b64decode, b64encode
@@ -76,7 +77,7 @@ def addTorrent(tor_url, hashID, data=None):
     try:
         if torrent:
             logger.debug('Sending rTorrent content [%s...]' % str(torrent)[:40])
-            _ = server.load_raw(b64encode(torrent))
+            _ = server.load_raw(makeUnicode(b64encode(torrent)))
         else:
             logger.debug('Sending rTorrent url [%s...]' % str(tor_url)[:40])
             _ = server.load(tor_url)  # response isn't anything useful, always 0
@@ -144,11 +145,18 @@ def getFiles(hashID):
     mainview = server.download_list("", "main")
     for tor in mainview:
         if tor.upper() == hashID.upper():
-            files = server.f.get_path(tor)
-            sizes = server.f.get_size_bytes(tor)
-            logger.debug("PAB %s" % str(files))
-            logger.debug("PAB %s" % str(sizes))
-            return ''
+            size_files = server.d.get_size_files(tor)
+            files = []
+            cnt = 0
+            while cnt < size_files:
+                target = "%s:f%d" % (tor, cnt)
+                path = server.f.get_path(target)
+                size = server.f.get_size_bytes(target)
+                logger.debug("PAB %s %s" % (path, size))
+                files.append({"path": path, "size": size})
+                cnt += 1
+            logger.debug(files)
+            return files
     return ''
 
 
