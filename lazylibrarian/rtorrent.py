@@ -18,6 +18,7 @@ import lazylibrarian
 from lazylibrarian import logger
 # noinspection PyUnresolvedReferences
 from lib.six.moves import xmlrpc_client
+from base64 import b64decode
 
 
 def getServer():
@@ -54,27 +55,31 @@ def getServer():
         return False
 
 
-def addTorrent(tor_url, hashID):
+def addTorrent(tor_url, hashID, data=None):
     server = getServer()
     if server is False:
         return False, 'rTorrent unable to connect to server'
 
-    directory = lazylibrarian.CONFIG['RTORRENT_DIR']
-
-    # if tor_url.startswith('magnet') and directory:
-    #    can't send magnets to rtorrent with a directory - not working correctly
-    #    convert magnet to torrent instead
-    #    tor_name = 'meta-' + hashID + '.torrent'
-    #    tor_file = os.path.join(lazylibrarian.CONFIG['TORRENT_DIR'], tor_name)
-    #    torrent = magnet2torrent(tor_url, tor_file)
-    #    if torrent is False:
-    #       return False
-    #    tor_url = torrent
-
-    # socket.setdefaulttimeout(10)  # shouldn't need timeout again as we already talked to server
-
+    torrent = None
+    if data:
+        if 'announce' in data[:40]:
+            torrent = data
+        else:
+            if lazylibrarian.LOGLEVEL & lazylibrarian.log_dlcomms:
+                logger.debug('Contents doesn\'t look like a torrent, maybe b64encoded')
+            data = b64decode(data)
+            if 'announce' in data[:40]:
+                torrent = data
+            else:
+                if lazylibrarian.LOGLEVEL & lazylibrarian.log_dlcomms:
+                    logger.debug('Contents doesn\'t look like a b64encoded torrent either')
     try:
-        _ = server.load(tor_url)  # response isn't anything useful, always 0
+        if torrent:
+            logger.debug('Sending rTorrent content [%s...]' % str(torrent)[:40])
+            _ = server.load_raw(torrent)
+        else:
+            logger.debug('Sending rTorrent url [%s...]' % str(tor_url)[:40])
+            _ = server.load(tor_url)  # response isn't anything useful, always 0
         # need a short pause while rtorrent loads it
         RETRIES = 5
         while RETRIES:
@@ -89,47 +94,69 @@ def addTorrent(tor_url, hashID):
         if label:
             server.d.set_custom1(hashID, label)
 
+        directory = lazylibrarian.CONFIG['RTORRENT_DIR']
         if directory:
             server.d.set_directory(hashID, directory)
 
         server.d.start(hashID)
 
-        # socket.setdefaulttimeout(None)  # reset timeout
-
     except Exception as e:
-        # socket.setdefaulttimeout(None)  # reset timeout if failed
         res = "rTorrent Error: %s: %s" % (type(e).__name__, str(e))
         logger.error(res)
         return False, res
 
-    # For each torrent in the main view
-    mainview = server.download_list("", "main")
-    for tor in mainview:
-        if tor.upper() == hashID.upper():  # this is us
-            # wait a while for download to start, that's when rtorrent fills in the name
-            RETRIES = 5
-            name = ''
-            while RETRIES:
-                name = server.d.get_name(tor)
-                if tor.upper() not in name:
-                    break
-                sleep(5)
-                RETRIES -= 1
-
-            directory = server.d.get_directory(tor)
-            label = server.d.get_custom1(tor)
-            if label:
-                logger.debug('rtorrent downloading %s to %s with label %s' % (name, directory, label))
-            else:
-                logger.debug('rtorrent downloading %s to %s' % (name, directory))
-            return hashID, ''
+    # wait a while for download to start, that's when rtorrent fills in the name
+    name = getName(hashID, server)
+    if name:
+        directory = server.d.get_directory(hashID)
+        label = server.d.get_custom1(hashID)
+        if label:
+            logger.debug('rTorrent downloading %s to %s with label %s' % (name, directory, label))
+        else:
+            logger.debug('rTorrent downloading %s to %s' % (name, directory))
+        return hashID, ''
     return False, 'rTorrent hashid not found'
 
 
-def getName(hashID):
+def getProgress(hashID):
     server = getServer()
     if server is False:
-        return False
+        return 0, 'error'
+
+    mainview = server.download_list("", "main")
+    for tor in mainview:
+        if tor.upper() == hashID.upper():
+            bytes_done = server.d.get_bytes_done(tor)
+            completed_bytes = server.d.get_completed_bytes(tor)
+            complete = server.d.get_complete(tor)
+            left_bytes = server.d.get_left_bytes(tor)
+            size_bytes = server.d.get_size_bytes(tor)
+            logger.debug("PAB %s-%s-%s-%s-%s" % (bytes_done, completed_bytes, complete, left_bytes, size_bytes))
+            return 0, 'OK'
+    return -1, ''
+
+
+def getFiles(hashID):
+    server = getServer()
+    if server is False:
+        return ''
+
+    mainview = server.download_list("", "main")
+    for tor in mainview:
+        if tor.upper() == hashID.upper():
+            files = server.f.get_path(tor)
+            sizes = server.f.get_size_bytes(tor)
+            logger.debug("PAB %s" % str(files))
+            logger.debug("PAB %s" % str(sizes))
+            return ''
+    return ''
+
+
+def getName(hashID, server=None):
+    if not server:
+        server = getServer()
+        if server is False:
+            return False
 
     mainview = server.download_list("", "main")
     for tor in mainview:
