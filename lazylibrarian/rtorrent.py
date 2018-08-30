@@ -18,7 +18,7 @@ import lazylibrarian
 from lazylibrarian import logger
 # noinspection PyUnresolvedReferences
 from lib.six.moves import xmlrpc_client
-from base64 import b64decode
+from base64 import b64decode, b64encode
 
 
 def getServer():
@@ -76,7 +76,7 @@ def addTorrent(tor_url, hashID, data=None):
     try:
         if torrent:
             logger.debug('Sending rTorrent content [%s...]' % str(torrent)[:40])
-            _ = server.load_raw(torrent)
+            _ = server.load_raw(b64encode(torrent))
         else:
             logger.debug('Sending rTorrent url [%s...]' % str(tor_url)[:40])
             _ = server.load(tor_url)  # response isn't anything useful, always 0
