@@ -16,7 +16,7 @@ from time import sleep
 
 import lazylibrarian
 from lazylibrarian import logger
-from lazylibrarian formatter import makeUnicode
+from lazylibrarian.formatter import makeUnicode
 # noinspection PyUnresolvedReferences
 from lib.six.moves import xmlrpc_client
 from base64 import b64decode, b64encode
